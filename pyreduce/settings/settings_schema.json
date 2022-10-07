@@ -38,7 +38,24 @@
             "type": "object"
         },
         "bias": {
-            "$ref": "#/definitions/step"
+            "allOf": [
+                {
+                    "$ref": "#/definitions/step"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "degree": {
+                            "description": "Polynomial degree of the fit between exposure time and pixel values",
+                            "type": "number",
+                            "minimum": 0
+                        }
+                    },
+                    "required": [
+                        "degree"
+                    ]
+                }
+            ]
         },
         "flat": {
             "allOf": [
@@ -239,10 +256,100 @@
                                 "integer"
                             ],
                             "exclusiveMinimum": 0
+                        },
+                        "threshold_lower":{
+                            "description": "Lower background level threshold, after the extraction. Always absolute, by default 0.",
+                            "type": "number",
+                            "minimum": 0
                         }
                     },
                     "required": [
-                        "threshold"
+                        "threshold",
+                        "threshold_lower"
+                    ]
+                }
+            ]
+        },
+        "wavecal_master": {
+            "allOf": [
+                {
+                    "$ref": "#/definitions/step"
+                },
+                {
+                    "$ref": "#/definitions/extraction"
+                },
+                {
+                    "$ref": "#/definitions/bias_scaling"
+                }
+            ]
+        },
+        "wavecal_init": {
+            "allOf": [
+                {
+                    "$ref": "#/definitions/step"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "degree": {
+                            "description": "Degree of the polynomial fit for the initial guess",
+                            "type": "number",
+                            "minimum": 2
+                        },
+                        "element": {
+                            "description": "Element(s) of the Gas Lamp used for calibration",
+                            "type": "string"
+                        },
+                        "medium": {
+                            "description": "Medium of the detector, either air or vaccum. This affects the wavelength scale",
+                            "type": "string",
+                            "enum": [
+                                "vac",
+                                "air"
+                            ]
+                        },
+                        "wave_delta": {
+                            "description": "Wavelength uncertainty on the initial guess in Angstrom",
+                            "type": "number",
+                            "minimum": 0
+                        },
+                        "nwalkers": {
+                            "description": "Number of MCMC walkers",
+                            "type": "number",
+                            "minimum": 1
+                        },
+                        "steps": {
+                            "description": "Number of MCMC steps per walker",
+                            "type": "number",
+                            "minimum": 1
+                        },
+                        "resid_delta": {
+                            "description": "Residual Uncertainty allowed to match a peak to its known wavelength in m/s",
+                            "type": "number",
+                            "minimum": 0
+                        },
+                        "smoothing": {
+                            "description": "Gaussian smoothing parameter applied to the observed spectrum in pixel scale, set to 0 to disable smoothing",
+                            "type": "number",
+                            "minimum": 0
+                        },
+                        "cutoff": {
+                            "description": "Minimum height of spectral lines in the normalized spectrum, values of 1 and above are interpreted as percentiles of the spectrum, set to 0 to disable the cutoff",
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                        }
+                    },
+                    "required": [
+                        "degree",
+                        "element",
+                        "medium",
+                        "wave_delta",
+                        "nwalkers",
+                        "steps",
+                        "resid_delta",
+                        "smoothing",
+                        "cutoff"
                     ]
                 }
             ]
@@ -253,13 +360,7 @@
                     "$ref": "#/definitions/step"
                 },
                 {
-                    "$ref": "#/definitions/extraction"
-                },
-                {
                     "$ref": "#/definitions/polynomialfit"
-                },
-                {
-                    "$ref": "#/definitions/bias_scaling"
                 },
                 {
                     "type": "object",
@@ -283,16 +384,41 @@
                             "description": "Number of iterations in the Remove Lines, Identify Lines loop",
                             "type": "integer",
                             "minimum": 0
+                        },
+                        "element": {
+                            "description": "Element(s) of the Gas Lamp used for calibration",
+                            "type": ["string", "null"]
+                        },
+                        "medium": {
+                            "description": "Medium of the detector, either air or vaccum. This affects the wavelength scale",
+                            "type": "string",
+                            "enum": [
+                                "vac",
+                                "air"
+                            ]
                         }
                     },
                     "required": [
                         "manual",
                         "shift_window",
-                        "degree",
                         "threshold",
                         "iterations",
-                        "dimensionality"
+                        "element",
+                        "medium"
                     ]
+                }
+            ]
+        },
+        "freq_comb_master": {
+            "allOf": [
+                {
+                    "$ref": "#/definitions/step"
+                },
+                {
+                    "$ref": "#/definitions/extraction"
+                },
+                {
+                    "$ref": "#/definitions/bias_scaling"
                 }
             ]
         },
@@ -300,9 +426,6 @@
             "allOf": [
                 {
                     "$ref": "#/definitions/step"
-                },
-                {
-                    "$ref": "#/definitions/extraction"
                 },
                 {
                     "$ref": "#/definitions/polynomialfit"
@@ -342,6 +465,12 @@
                     "$ref": "#/definitions/polynomialfit"
                 },
                 {
+                    "$ref": "#/definitions/bias_scaling"
+                },
+                {
+                    "$ref": "#/definitions/extraction"
+                },
+                {
                     "type": "object",
                     "properties": {
                         "curv_degree": {
@@ -349,25 +478,6 @@
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 2
-                        },
-                        "extraction_width": {
-                            "description": "Number of pixels below and above the order to use in the extraction. If a value under 1.5 is given it will be understood as the fractional difference to the next order. If only a single value is given it will be applied to all orders, otherwise values need to be provided for all orders",
-                            "type": [
-                                "integer",
-                                "number",
-                                "array"
-                            ],
-                            "items": {
-                                "type": [
-                                    "integer",
-                                    "number"
-                                ]
-                            }
-                        },
-                        "curvature_cutoff": {
-                            "description": "The threshold for removing outliers in standard deviations of the residual",
-                            "type": "number",
-                            "exclusiveMinimum": 0
                         },
                         "peak_threshold": {
                             "description": "Peak detection noise threshold. This much times * 10% noise must be the prominence of the peaks",
@@ -405,8 +515,11 @@
                     "required": [
                         "dimensionality",
                         "degree",
-                        "extraction_width",
-                        "curvature_cutoff"
+                        "peak_function",
+                        "window_width",
+                        "peak_width",
+                        "peak_threshold",
+                        "curv_degree"
                     ]
                 }
             ]
@@ -492,7 +605,10 @@
         "orders",
         "scatter",
         "norm_flat",
+        "wavecal_master",
+        "wavecal_init",
         "wavecal",
+        "freq_comb_master",
         "freq_comb",
         "curvature",
         "continuum",
@@ -617,12 +733,22 @@
                             "description": "Number of sigma above the median of the sorounding pixels to curoff the pixel as a bad pixel. Before the main extraction!. Set to 0 to ignore.",
                             "type": "number",
                             "minimum": 0
+                        },
+                        "collapse_function": {
+                            "description": "Function used to collapse the image into a spectrum",
+                            "type": "string",
+                            "enum": [
+                                "sum",
+                                "mean",
+                                "median"
+                            ]
                         }
                     },
                     "required": [
                         "extraction_method",
                         "extraction_width",
-                        "extraction_cutoff"
+                        "extraction_cutoff",
+                        "collapse_function"
                     ]
                 }
             ]
@@ -673,9 +799,24 @@
                 "bias_scaling": {
                     "description": "determines how the bias is applied",
                     "type": "string",
-                    "enum": ["number_of_files", "exposure_time", "mean", "median"]
+                    "enum": [
+                        "number_of_files",
+                        "exposure_time",
+                        "mean",
+                        "median",
+                        "none"
+                    ]
+                },
+                "norm_scaling":{
+                    "description": "determines how to apply the normalized flat",
+                    "type": "string",
+                    "enum": ["divide", "none"]
                 }
-            }
+            },
+            "required": [
+                "bias_scaling",
+                "norm_scaling"
+            ]
         }
     }
 }

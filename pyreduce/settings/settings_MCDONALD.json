@@ -8,9 +8,9 @@
         "closing_shape": [3, 10],
         "filter_size": 30,
         "min_cluster": 200,
-        "auto_merge_threshold": 0,
-        "merge_min_threshold": 0,
         "noise": 50,
+        "auto_merge_threshold": 0.9,
+        "merge_min_threshold": 0.5,
         "manual": true
     },
     "scatter":{
@@ -24,18 +24,24 @@
         "swath_width": 200,
         "threshold": 1000
     },
+    "wavecal_master": {
+        "extraction_width": 10
+    },
     "wavecal": {
-        "threshold": 100,
-        "dimensionality": "2D",
-        "degree": [6, 6],
+        "threshold": 500,
+        "dimensionality": "1D",
+        "degree": 8,
         "manual": false,
+        "element": "thar",
+        "medium": "vac"
+    },
+    "freq_comb_master": {
         "extraction_width": 10
     },
     "freq_comb": {
         "threshold": 100,
         "dimensionality": "2D",
-        "degree": [6, 6],
-        "extraction_width": 10
+        "degree": [6, 6]
     },
     "curvature": {
         "extraction_width": 10,

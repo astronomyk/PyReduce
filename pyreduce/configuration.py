@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Loads configuration files
 
 This module loads json configuration files from disk,
@@ -7,9 +8,10 @@ It also checks that all parameters exists, and that
 no new parameters have been added by accident.
 """
 
-from os.path import dirname, join
-import logging
 import json
+import logging
+from os.path import dirname, join
+
 import jsonschema
 
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ else:
     hasJsonSchema = True
 
 
-def get_configuration_for_instrument(instrument, plot=None):
+def get_configuration_for_instrument(instrument, **kwargs):
     local = dirname(__file__)
     instrument = str(instrument)
     if instrument in ["pyreduce", None]:
@@ -34,10 +36,10 @@ def get_configuration_for_instrument(instrument, plot=None):
 
     config = load_config(fname, instrument)
 
-    if plot is not None:
+    for kwarg_key, kwarg_value in kwargs.items():
         for key, value in config.items():
-            if isinstance(config[key], dict) and "plot" in config[key].keys():
-                config[key]["plot"] = plot
+            if isinstance(config[key], dict) and kwarg_key in config[key].keys():
+                config[key][kwarg_key] = kwarg_value
 
     return config
 
@@ -85,7 +87,7 @@ def load_config(configuration, instrument, j=0):
     return settings
 
 
-def update(dict1, dict2, check=True):
+def update(dict1, dict2, check=True, name="dict1"):
     """
     Update entries in dict1 with entries of dict2 recursively,
     i.e. if the dict contains a dict value, values inside the dict will
@@ -116,9 +118,9 @@ def update(dict1, dict2, check=True):
     exclude = ["instrument"]
     for key, value in dict2.items():
         if check and key not in dict1.keys():
-            raise KeyError(f"{key} is not contained in dict1")
+            logger.warning(f"{key} is not contained in {name}")
         if isinstance(value, dict):
-            dict1[key] = update(dict1[key], value, check=key not in exclude)
+            dict1[key] = update(dict1[key], value, check=key not in exclude, name=key)
         else:
             dict1[key] = value
     return dict1

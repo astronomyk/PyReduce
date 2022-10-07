@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Module that estimates the background scatter
 """
@@ -7,8 +8,8 @@ import logging
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .extract import fix_parameters, fix_extraction_width
-from .util import polyfit2d, polyfit2d_2, make_index
+from .extract import fix_extraction_width, fix_parameters
+from .util import make_index, polyfit2d, polyfit2d_2
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ def estimate_background_scatter(
         yp, xp = np.indices(img.shape)
         back = np.polynomial.polynomial.polyval2d(xp, yp, coeff)
 
-        plt.subplot(211)
+        plt.subplot(121)
         plt.title("Input Image + In-between Order traces")
         plt.xlabel("x [pixel]")
         plt.ylabel("y [pixel]")
@@ -116,7 +117,7 @@ def estimate_background_scatter(
         plt.imshow(img - back, vmin=vmin, vmax=vmax, aspect="equal", origin="lower")
         plt.plot(x, y, ",")
 
-        plt.subplot(212)
+        plt.subplot(122)
         plt.title("2D fit to the scatter between orders")
         plt.xlabel("x [pixel]")
         plt.ylabel("y [pixel]")

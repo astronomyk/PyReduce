@@ -1,6 +1,5 @@
 {
     "__instrument__": "NIRSPEC",
-    "__skip_existing__": false,
     "instrument": {
         "#": "The calibration dir points to the location of the calibration data, since the default data download seperates the science and the calibration into different directories. It is relative to the science directory.",
         "calibration_dir": ""
@@ -25,15 +24,19 @@
         "swath_width": 300,
         "threshold": 1000
     },
+    "wavecal_master": {
+        "extraction_width": 0.25
+    },
     "wavecal": {
-        "extraction_width": 0.25,
         "threshold": 100,
         "dimensionality": "2D",
         "degree": [2, 6],
         "manual": false
     },
+    "freq_comb_master": {
+        "extraction_width": 0.25
+    },
     "freq_comb": {
-        "extraction_width": 0.25,
         "dimensionality": "2D",
         "degree": [6, 6]
     },

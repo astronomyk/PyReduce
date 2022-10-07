@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Module that
     - Clips remove pre- and overscan regions
@@ -5,11 +6,15 @@ Module that
 """
 
 import logging
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-def clipnflip(image, header, xrange=None, yrange=None, orientation=None):
+
+def clipnflip(
+    image, header, xrange=None, yrange=None, orientation=None, transpose=None
+):
     """
     Process an image and associated FITS header already in memory as follows:
     1. Trim image to desired subregion: newimage = image(xlo:xhi,ylo:yhi)
@@ -27,6 +32,8 @@ def clipnflip(image, header, xrange=None, yrange=None, orientation=None):
         row - range to keep in the image (default: data from header/instrument)
     orientation : int, optional
         number of counterclockwise 90 degrees rotation to apply to the image (default: data from header/instrument)
+    transpose : bool, optional
+        if True the image will be transposed before rotation (default: data from header/instrument)
 
     Returns
     -------
@@ -43,7 +50,7 @@ def clipnflip(image, header, xrange=None, yrange=None, orientation=None):
     n_amp = header.get("e_ampl", 1)
     image = np.asarray(image)
 
-    if n_amp > 1: # pragma: no cover
+    if n_amp > 1:  # pragma: no cover
         raise NotImplementedError
         xlo = np.array(header["e_xlo*"].values())
         xhi = np.array(header["e_xhi*"].values())
@@ -123,9 +130,16 @@ def clipnflip(image, header, xrange=None, yrange=None, orientation=None):
         timage = image[..., ylo:yhi, xlo:xhi]  # trimmed image
 
     # Flip image (if necessary) to achieve standard image orientation.
-    orientation = orientation if orientation is not None else header.get("e_orient")
-    if orientation is not None:
-        timage = np.rot90(timage, -1 * orientation, axes=(-2, -1))
+    orientation = orientation if orientation is not None else header.get("e_orient", 0)
+    # As per the old IDL definition, transpose is true for orientations larger than 4
+    transpose = (
+        transpose
+        if transpose is not None
+        else header.get("e_transpose", (orientation % 8) >= 4)
+    )
+    if transpose:
+        timage = np.transpose(timage, axes=(-1, -2))
+    timage = np.rot90(timage, -1 * orientation, axes=(-2, -1))
 
     # TODO just sum up groups and stuff?
     while timage.ndim > 2:

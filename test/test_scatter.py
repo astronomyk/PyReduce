@@ -1,5 +1,6 @@
-import pytest
+# -*- coding: utf-8 -*-
 import numpy as np
+import pytest
 
 from pyreduce.estimate_background_scatter import estimate_background_scatter
 
@@ -15,6 +16,7 @@ def test_scatter(flat, orders, settings):
     settings["sigma_cutoff"] = settings["scatter_cutoff"]
     del settings["scatter_cutoff"]
     del settings["bias_scaling"]
+    del settings["norm_scaling"]
 
     if img is None:
         pytest.skip("Need flat")

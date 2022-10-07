@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pytest
 
 from pyreduce import configuration as conf
@@ -42,8 +43,9 @@ def test_update():
     assert res["blub"]["foo"] == 0
     assert res["blub"]["bar"] == 1
 
-    with pytest.raises(KeyError):
-        conf.update(dict1, {"foo": 1}, check=True)
+    # This only shows a warning now
+    # with pytest.raises(KeyError):
+    #     conf.update(dict1, {"foo": 1}, check=True)
 
     res = conf.update(dict1, {"foo": "bar"}, check=False)
     assert res["foo"] == "bar"
@@ -57,6 +59,7 @@ def test_read_config():
 
     with pytest.raises(FileNotFoundError):
         conf.read_config(fname="blablub.json")
+
 
 def test_validation():
     config = conf.get_configuration_for_instrument("UVES")

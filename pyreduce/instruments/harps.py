@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Handles instrument specific info for the HARPS spectrograph
 
@@ -49,15 +50,18 @@ class FiberFilter(Filter):
 
     def collect(self, header):
         value = header.get(self.keyword)
-        value = value.split(",")
-        if value[0] in self.lamp_values and value[1] in self.lamp_values:
-            value = "AB"
-        elif value[1] in self.lamp_values:
-            value = "B"
-        elif value[0] in self.lamp_values:
-            value = "A"
-        else:
+        if value is None:
             value = ""
+        else:
+            value = value.split(",")
+            if value[0] in self.lamp_values and value[1] in self.lamp_values:
+                value = "AB"
+            elif value[1] in self.lamp_values:
+                value = "B"
+            elif value[0] in self.lamp_values:
+                value = "A"
+            else:
+                value = ""
 
         self.data.append(value)
         return value
@@ -68,7 +72,7 @@ class PolarizationFilter(Filter):
         super().__init__(keyword, regex=True)
 
     def collect(self, header):
-        dpr_type = header.get("ESO DPR TYPE", None)
+        dpr_type = header.get("ESO DPR TYPE", "")
         match = re.match(r"^.*,(CIR|LIN)POL,.*$", dpr_type)
         if match is None:
             value = "none"
@@ -103,15 +107,16 @@ class HARPS(Instrument):
         self.find_closest = [
             "bias",
             "flat",
-            "wavecal",
+            "wavecal_master",
+            "freq_comb_master",
             "orders",
             "scatter",
             "curvature",
         ]
 
-    def get_expected_values(self, target, night, branch, fiber, polarimetry):
+    def get_expected_values(self, target, night, mode, fiber, polarimetry):
         """Determine the default expected values in the headers for a given observation configuration
-        
+
         Any parameter may be None, to indicate that all values are allowed
 
         Parameters
@@ -126,13 +131,13 @@ class HARPS(Instrument):
             Whether the instrument is used in HARPS or HARPSpol mode
             and which polarization is observed. Set to true for both kinds
             of polarisation.
-        
+
         Returns
         -------
         expectations: dict
             Dictionary of expected header values, with one entry per step.
             The entries for each step refer to the filters defined in self.filters
-        
+
         Raises
         ------
         ValueError
@@ -202,12 +207,12 @@ class HARPS(Instrument):
                 "night": night,
                 "type": [r"(WAVE,WAVE,COMB)", r"(WAVE,WAVE,THAR)\d?"],
             },
-            "wavecal": {
+            "wavecal_master": {
                 "instrument": "HARPS",
                 "night": night,
                 "type": r"(WAVE,WAVE,THAR)\d?",
             },
-            "freq_comb": {
+            "freq_comb_master": {
                 "instrument": "HARPS",
                 "night": night,
                 "type": r"(WAVE,WAVE,COMB)",
@@ -240,7 +245,7 @@ class HARPS(Instrument):
         return extension
 
     def add_header_info(self, header, mode, **kwargs):
-        """ read data from header and add it as REDUCE keyword back to the header """
+        """read data from header and add it as REDUCE keyword back to the header"""
         # "Normal" stuff is handled by the general version, specific changes to values happen here
         # alternatively you can implement all of it here, whatever works
         header = super().add_header_info(header, mode)
@@ -285,12 +290,19 @@ class HARPS(Instrument):
         return header
 
     def get_wavecal_filename(self, header, mode, polarimetry, **kwargs):
-        """ Get the filename of the wavelength calibration config file """
+        """Get the filename of the wavelength calibration config file"""
         cwd = dirname(__file__)
         if polarimetry:
             pol = "_pol"
         else:
             pol = ""
-        fname = f"harps_{mode}{pol}_2D.npz"
+        fname = f"harps_{mode.lower()}{pol}_2D.npz"
         fname = join(cwd, "..", "wavecal", fname)
         return fname
+
+    def get_wavelength_range(self, header, mode, **kwargs):
+        wave_range = super().get_wavelength_range(header, mode, **kwargs)
+        # The wavelength orders are in inverse order in the .json file
+        # because I was to lazy to invert them in the file
+        wave_range = wave_range[::-1]
+        return wave_range

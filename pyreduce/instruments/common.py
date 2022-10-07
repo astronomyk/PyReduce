@@ -1,28 +1,29 @@
+# -*- coding: utf-8 -*-
 """
 Abstract parent module for all other instruments
 Contains some general functionality, which may be overridden by the children of course
 """
-import os.path
 import datetime
 import glob
-import logging
 import json
+import logging
+import os.path
 from itertools import product
-from tqdm import tqdm
 
 import numpy as np
 from astropy.io import fits
 from astropy.time import Time
 from dateutil import parser
+from tqdm import tqdm
 
 from ..clipnflip import clipnflip
-from .filters import Filter, ObjectFilter, InstrumentFilter, NightFilter, ModeFilter
+from .filters import Filter, InstrumentFilter, ModeFilter, NightFilter, ObjectFilter
 
 logger = logging.getLogger(__name__)
 
 
 def find_first_index(arr, value):
-    """ find the first element equal to value in the array arr """
+    """find the first element equal to value in the array arr"""
     try:
         return next(i for i, v in enumerate(arr) if v == value)
     except StopIteration:
@@ -91,8 +92,8 @@ class getter:
         """
 
         value = self.info.get(key, key)
-        if isinstance(value, list):
-            value = value[self.index]
+        # if isinstance(value, list):
+        #     value = value[self.index]
         if isinstance(value, str):
             value = value.format(**self.info)
             value = self.header.get(value, alt)
@@ -133,8 +134,8 @@ class Instrument:
         self.find_closest = [
             "bias",
             "flat",
-            "wavecal",
-            "comb",
+            "wavecal_master",
+            "freq_comb_master",
             "orders",
             "scatter",
             "curvature",
@@ -142,6 +143,10 @@ class Instrument:
 
     def __str__(self):
         return self.name
+
+    def get(self, key, header, mode, alt=None):
+        get = getter(header, self.info, mode)
+        return get(key, alt=alt)
 
     def get_extension(self, header, mode):
         mode = mode.upper()
@@ -269,6 +274,9 @@ class Instrument:
             jd = jd.to_value("mjd")
 
         header["e_orient"] = get("orientation", 0)
+        # As per IDL rotate if orient is 4 or larger and transpose is undefined
+        # the image is transposed
+        header["e_transpose"] = get("transpose", (header["e_orient"] % 8 >= 4))
 
         naxis_x = get("naxis_x", 0)
         naxis_y = get("naxis_y", 0)
@@ -302,19 +310,20 @@ class Instrument:
         header["e_obslat"] = get("latitude")
         header["e_obsalt"] = get("altitude")
 
-        header["HIERARCH e_wavecal_element"] = get(
-            "wavecal_element", info.get("wavecal_element", None)
-        )
+        if info.get("wavecal_element", None) is not None:
+            header["HIERARCH e_wavecal_element"] = get(
+                "wavecal_element", info.get("wavecal_element", None)
+            )
         return header
 
     def find_files(self, input_dir):
-        """ Find fits files in the given folder
-        
+        """Find fits files in the given folder
+
         Parameters
         ----------
         input_dir : string
             directory to look for fits and fits.gz files in, may include bash style wildcards
-        
+
         Returns
         -------
         files: array(string)
@@ -352,12 +361,12 @@ class Instrument:
                 "night": night,
                 "curvature": self.info["id_curvature"],
             },
-            "wavecal": {
+            "wavecal_master": {
                 "instrument": self.info["id_instrument"],
                 "night": night,
                 "wave": self.info["id_wave"],
             },
-            "freq_comb": {
+            "freq_comb_master": {
                 "instrument": self.info["id_instrument"],
                 "night": night,
                 "comb": self.info["id_comb"],
@@ -372,13 +381,13 @@ class Instrument:
         return expectations
 
     def populate_filters(self, files):
-        """ Extract values from the fits headers and store them in self.filters
-        
+        """Extract values from the fits headers and store them in self.filters
+
         Parameters
         ----------
         files : list(str)
             list of fits files
-        
+
         Returns
         -------
         filters: list(Filter)
@@ -396,7 +405,7 @@ class Instrument:
 
         return self.filters
 
-    def apply_filters(self, files, expected):
+    def apply_filters(self, files, expected, allow_calibration_only=False):
         """
         Determine the relevant files for a given set of expected values.
 
@@ -447,15 +456,30 @@ class Instrument:
         # Filter for only nights that have a science observation
         # files = [{setting: value}, {step: files}]
         files = []
-        for key, _ in result[self.science]:
+        if allow_calibration_only:
+            # Use all unique nights
+            settings = {}
+            for shared in self.shared:
+                keys = [k for k in set(self.filters[shared].data) if k is not None]
+                settings[shared] = keys
+        else:
+            # Or use only science nights
+            settings = {}
+            for shared in self.shared:
+                keys = [key[shared] for key, _ in result[self.science]]
+                settings[shared] = keys
+
+        values = [settings[k] for k in self.shared]
+        for setting in product(*values):
+            setting = {k: v for k, v in zip(self.shared, setting)}
+            night = setting[self.night]
             f = {}
-            night = key[self.night]
             # For each step look for files with matching settings
             for step, step_data in result.items():
                 f[step] = []
                 for step_key, step_files in step_data:
                     match = [
-                        key[shared] == step_key[shared]
+                        setting[shared] == step_key[shared]
                         for shared in self.shared
                         if shared in step_key.keys()
                     ]
@@ -469,7 +493,7 @@ class Instrument:
                         logger.warning(
                             "Could not find any files for step '%s' with settings %s, sharing parameters %s",
                             step,
-                            key,
+                            setting,
                             self.shared,
                         )
                     else:
@@ -477,21 +501,24 @@ class Instrument:
                         j = None
                         for i, (step_key, step_files) in enumerate(step_data):
                             match = [
-                                key[shared] == step_key[shared]
+                                setting[shared] == step_key[shared]
                                 for shared in self.shared
                                 if shared in step_key.keys() and shared != self.night
                             ]
                             if all(match):
-                                if j is None or abs(
-                                    step_data[j][0][self.night] - night
-                                ) > abs(step_data[i][0][self.night] - night):
+                                if j is None:
                                     j = i
+                                else:
+                                    diff_old = abs(step_data[j][0][self.night] - night)
+                                    diff_new = abs(step_data[i][0][self.night] - night)
+                                    if diff_new < diff_old:
+                                        j = i
                         if j is None:
                             # We still dont find any files
                             logger.warning(
                                 "Could not find any files for step '%s' in any night with settings %s, sharing parameters %s",
                                 step,
-                                key,
+                                setting,
                                 self.shared,
                             )
                         else:
@@ -505,7 +532,8 @@ class Instrument:
                             )
                             f[step] = closest_files
 
-            files.append((key, f))
+            if any([len(a) > 0 for a in f.values()]):
+                files.append((setting, f))
         if len(files) == 0:
             logger.warning(
                 "No %s files found matching the expected values %s",
@@ -514,7 +542,9 @@ class Instrument:
             )
         return files
 
-    def sort_files(self, input_dir, target, night, *args, **kwargs):
+    def sort_files(
+        self, input_dir, target, night, *args, allow_calibration_only=False, **kwargs
+    ):
         """
         Sort a set of fits files into different categories
         types are: bias, flat, wavecal, orderdef, spec
@@ -537,9 +567,14 @@ class Instrument:
         nights_out : list[datetime]
             a list of observation times, same order as files_per_night
         """
+        input_dir = input_dir.format(
+            **kwargs, target=target, night=night, instrument=self.name
+        )
         files = self.find_files(input_dir)
         ev = self.get_expected_values(target, night, *args, **kwargs)
-        files = self.apply_filters(files, ev)
+        files = self.apply_filters(
+            files, ev, allow_calibration_only=allow_calibration_only
+        )
         return files
 
     def get_wavecal_filename(self, header, mode, **kwargs):
@@ -581,15 +616,16 @@ class Instrument:
         fname = os.path.join(cwd, "..", "masks", fname)
         return fname
 
+    def get_wavelength_range(self, header, mode, **kwargs):
+        return self.get("wavelength_range", header, mode)
+
 
 class InstrumentWithModes(Instrument):
     def __init__(self):
         super().__init__()
 
-        replacement = {k: v for k, v in zip(self.info["id_modes"], self.info["modes"])}
-        self.filters["mode"] = ModeFilter(
-            self.info["kw_modes"], replacement=replacement
-        )
+        # replacement = {k: v for k, v in zip(self.info["id_modes"], self.info["modes"])}
+        self.filters["mode"] = ModeFilter(self.info["kw_modes"])
         self.shared += ["mode"]
 
     def get_expected_values(self, target, night, mode):

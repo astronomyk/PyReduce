@@ -1,7 +1,6 @@
 {
     "$schema": "./settings_schema.json",
     "__instrument__": "DEFAULT",
-    "__skip_existing__": false,
     "reduce": {
         "base_dir": "./",
         "input_dir": "raw",
@@ -10,11 +9,13 @@
     "instrument": {},
     "mask": {},
     "bias": {
+        "degree": 0,
         "plot": true,
         "plot_title": "Bias"
     },
     "flat": {
         "bias_scaling": "number_of_files",
+        "norm_scaling": "none",
         "plot": true,
         "plot_title": "Flat"
     },
@@ -22,6 +23,7 @@
         "degree": 4,
         "degree_before_merge": 2,
         "bias_scaling": "number_of_files",
+        "norm_scaling": "none",
         "regularization": 0,
         "closing_shape": [
             5,
@@ -45,6 +47,7 @@
         "border_width": null,
         "extraction_width": 0.3,
         "bias_scaling": "number_of_files",
+        "norm_scaling": "divide",
         "plot": true,
         "plot_title": "Background Scatter"
     },
@@ -53,17 +56,39 @@
         "smooth_slitfunction": 4,
         "smooth_spectrum": 1e-7,
         "oversampling": 10,
+        "maxiter": 20,
         "swath_width": 200,
         "extraction_width": 0.2,
         "threshold": 0.6,
+        "threshold_lower": 0,
         "extraction_cutoff": 20,
         "plot": true,
         "plot_title": "Normalized Flat"
     },
-    "wavecal": {
+    "wavecal_master": {
         "extraction_method": "arc",
+        "collapse_function": "median",
         "extraction_width": 0.5,
+        "extraction_cutoff": 20,
         "bias_scaling": "number_of_files",
+        "norm_scaling": "divide",
+        "plot": true,
+        "plot_title": "Wavelength Calibration Spectrum"
+    },
+    "wavecal_init": {
+        "degree": 2,
+        "element": "thar",
+        "medium": "vac",
+        "wave_delta": 20,
+        "nwalkers": 100,
+        "steps": 50000,
+        "resid_delta": 1000,
+        "cutoff": 0.01,
+        "smoothing": 0,
+        "plot": true,
+        "plot_title": "Wavelength Calibration Initial"
+    },
+    "wavecal": {
         "manual": false,
         "threshold": 100,
         "iterations": 3,
@@ -74,13 +99,22 @@
         ],
         "nstep": 0,
         "shift_window": 0.01,
-        "extraction_cutoff": 20,
+        "element": "thar",
+        "medium": "vac",
         "plot": true,
         "plot_title": "Wavelength Calibration"
     },
-    "freq_comb": {
+    "freq_comb_master":{
         "extraction_method": "arc",
+        "collapse_function": "median",
         "extraction_width": 0.5,
+        "extraction_cutoff": 20,
+        "bias_scaling": "number_of_files",
+        "norm_scaling": "divide",
+        "plot": true,
+        "plot_title": "Frequency Comb Spectrum"
+    },
+    "freq_comb": {
         "lfc_peak_width": 3,
         "dimensionality": "2D",
         "nstep": 0,
@@ -89,7 +123,6 @@
             6
         ],
         "threshold": 100,
-        "extraction_cutoff": 20,
         "plot": true,
         "plot_title": "Frequency Comb"
     },
@@ -97,6 +130,8 @@
         "dimensionality": "1D",
         "degree": 2,
         "curv_degree": 2,
+        "extraction_method": "arc",
+        "collapse_function": "median",
         "extraction_width": 0.2,
         "curvature_cutoff": 3,
         "extraction_cutoff": 20,
@@ -104,6 +139,8 @@
         "peak_width": 1,
         "window_width": 9,
         "peak_function": "gaussian",
+        "bias_scaling": "number_of_files",
+        "norm_scaling": "divide",
         "plot": true,
         "plot_title": "Slit Curvature"
     },
@@ -118,9 +155,12 @@
         "extraction_width": 0.25,
         "oversampling": 10,
         "swath_width": 300,
+        "maxiter": 20,
         "smooth_slitfunction": 0.1,
         "smooth_spectrum": 1e-7,
         "extraction_cutoff": 20,
+        "bias_scaling": "number_of_files",
+        "norm_scaling": "divide",
         "plot": true,
         "plot_title": "Science Data"
     },

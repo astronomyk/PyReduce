@@ -1,20 +1,20 @@
+# -*- coding: utf-8 -*-
 """
 Find clusters of pixels with signal
 And combine them into continous orders
 """
 
 import logging
-from itertools import combinations
 from functools import cmp_to_key
+from itertools import combinations
 
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial.polynomial import Polynomial
-
-from scipy.ndimage import morphology, label
+from scipy.ndimage import label, morphology
 from scipy.ndimage.filters import gaussian_filter1d, median_filter
 from scipy.ndimage.morphology import grey_closing
-from scipy.signal import peak_widths, find_peaks
+from scipy.signal import find_peaks, peak_widths
 
 from .util import polyfit1d
 
@@ -45,13 +45,19 @@ def best_fit(x, y):
 
 
 def determine_overlap_rating(xi, yi, xj, yj, mean_cluster_thickness, nrow, ncol, deg=2):
+    # i and j are the indices of the 2 clusters
     i_left, i_right = yi.min(), yi.max()
     j_left, j_right = yj.min(), yj.max()
 
+    # The number of pixels in the smaller cluster
+    # this limits the accuracy of the fit
+    n_min = min(i_right - i_left, j_right - j_left)
+
+    # Fit a polynomial to each cluster
     order_i = fit(xi, yi, deg)
     order_j = fit(xj, yj, deg)
 
-    # Get polynomial points inside cluster limits for each
+    # Get polynomial points inside cluster limits for each cluster and polynomial
     y_ii = np.polyval(order_i, np.arange(i_left, i_right))
     y_ij = np.polyval(order_i, np.arange(j_left, j_right))
     y_jj = np.polyval(order_j, np.arange(j_left, j_right))
@@ -66,8 +72,9 @@ def determine_overlap_rating(xi, yi, xj, yj, mean_cluster_thickness, nrow, ncol,
 
     # TODO: There should probably be some kind of normaliztion, that scales with the size of the cluster?
     # or possibly only use the closest pixels to determine overlap, since the polynomial is badly constrained outside of the bounds.
-    overlap = len(ind_i[0]) + len(ind_j[0])
-    overlap = overlap / ((i_right - i_left) + (j_right - j_left))
+    overlap = min(n_min, len(ind_i[0])) + min(n_min, len(ind_j[0]))
+    # overlap = overlap / ((i_right - i_left) + (j_right - j_left))
+    overlap /= 2 * n_min
     if i_right < j_left:
         overlap *= 1 - (i_right - j_left) / ncol
     elif j_right < i_left:
@@ -221,7 +228,7 @@ def merge_clusters(
                 if answer in "ynrg":
                     break
         else:
-            answer = "y"
+            answer = "n"
 
         if answer == "y":
             # just merge automatically
@@ -268,7 +275,7 @@ def fit_polynomials_to_clusters(x, y, clusters, degree, regularization=0):
 
 
 def plot_orders(im, x, y, clusters, orders, order_range, title=None):
-    """ Plot orders and image """
+    """Plot orders and image"""
 
     cluster_img = np.zeros(im.shape, dtype=im.dtype)
     for c in clusters:
@@ -308,7 +315,7 @@ def plot_orders(im, x, y, clusters, orders, order_range, title=None):
 
 
 def plot_order(i, j, x, y, img, deg, title=""):
-    """ Plot a single order """
+    """Plot a single order"""
     _, ncol = img.shape
 
     order_i = fit(x[i], y[i], deg)
@@ -361,7 +368,7 @@ def mark_orders(
     merge_min_threshold=0.1,
     sigma=0,
 ):
-    """ Identify and trace orders
+    """Identify and trace orders
 
     Parameters
     ----------
@@ -428,7 +435,8 @@ def mark_orders(
         logger.info("Minimum order width, estimated: %i", min_width)
 
     # im[im < 0] = np.ma.masked
-    blurred = grey_closing(im, 5)
+    blurred = np.ma.filled(im, fill_value=0)
+    blurred = grey_closing(blurred, 5)
     # blur image along columns, and use the median + blurred + noise as threshold
     blurred = gaussian_filter1d(blurred, filter_size, axis=0)
 

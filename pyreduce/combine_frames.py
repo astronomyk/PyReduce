@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Combine several fits files into one master frame
 
@@ -300,20 +301,28 @@ def combine_frames(
         # orient 0, 2, 5, 7: orders are horizontal
         # orient 1, 3, 4, 6: orders are vertical
         orientation = head["e_orient"]
+        transpose = head.get("e_transpose", False)
+        orientation = orientation % 8
         # check if non-linearity correction
         linear = head.get("e_linear", True)
 
         # section(s) of the detector to process, x_low, x_high, y_low, y_high
         # head["e_xlo*"] will find all entries with * as a wildcard
         # we also ensure that we will have one dimensional arrays (not just the value)
-        x_low = [c[1] for c in head["e_xlo*"].cards]
-        x_high = [c[1] for c in head["e_xhi*"].cards]
-        y_low = [c[1] for c in head["e_ylo*"].cards]
-        y_high = [c[1] for c in head["e_yhi*"].cards]
+        cards = sorted(head["e_xlo*"].cards, key=lambda c: c[0])
+        x_low = [c[1] for c in cards]
+        cards = sorted(head["e_xhi*"].cards, key=lambda c: c[0])
+        x_high = [c[1] for c in cards]
+        cards = sorted(head["e_ylo*"].cards, key=lambda c: c[0])
+        y_low = [c[1] for c in cards]
+        cards = sorted(head["e_yhi*"].cards, key=lambda c: c[0])
+        y_high = [c[1] for c in cards]
 
-        gain = [c[1] for c in head["e_gain*"].cards]
-        readnoise = [c[1] for c in head["e_readn*"].cards]
-        total_exposure_time = sum([h.get("exptime", 0) for h in heads])
+        cards = sorted(head["e_gain*"].cards, key=lambda c: c[0])
+        gain = [c[1] for c in cards]
+        cards = sorted(head["e_readn*"].cards, key=lambda c: c[0])
+        readnoise = [c[1] for c in cards]
+        total_exposure_time = sum(h.get("exptime", 0) for h in heads)
 
         # Scaling for image data
         bscale = [h.get("bscale", 1) for h in heads]
@@ -438,71 +447,196 @@ def combine_frames(
     return result, head
 
 
-def combine_flat(
+def combine_calibrate(
     files,
     instrument,
     mode,
-    extension=None,
-    bhead=None,
+    mask=None,
     bias=None,
+    bhead=None,
+    norm=None,
+    bias_scaling="exposure_time",
+    norm_scaling="divide",
     plot=False,
     plot_title=None,
-    bias_scaling="number_of_files",
     **kwargs,
 ):
     """
-    Combine several flat files into one master flat
+    Combine the input files and then calibrate the image with the bias
+    and normalized flat field if provided
 
     Parameters
     ----------
-    files : list(str)
-        flat files
-    instrument : str
-        instrument mode for modinfo
-    extension: {int, str}, optional
-        fits extension to use (default: 1)
-    bias: array(int, float), optional
-        bias image to subtract from master flat (default: 0)
+    files : list
+        list of file names to load
+    instrument : Instrument
+        PyReduce instrument object with load_fits method
+    mode : str
+        descriptor of the instrument mode
+    mask : array
+        2D Bad Pixel Mask to apply to the master image
+    bias : tuple(bias, bhead), optional
+        bias correction to apply to the combiend image, if bias has 3 dimensions
+        it is used as polynomial coefficients scaling with the exposure time, by default None
+    norm_flat : tuple(norm, blaze), optional
+        normalized flat to divide the combined image with after
+        the bias subtraction, by default None
+    bias_scaling : str, optional
+        defines how the bias is subtracted, by default "exposure_time"
+    plot : bool, optional
+        whether to plot the results, by default False
+    plot_title : str, optional
+        Name to put on the plot, by default None
 
-    xr: 2-tuple(int), optional
-        x range to use (default: None, i.e. whole image)
-    yr: 2-tuple(int), optional
-        y range to use (default: None, i.e. whole image)
-    dtype : np.dtype, optional
-        datatype of the combined bias frame (default: float32) 
     Returns
     -------
-    flat, fhead
-        image and header of master flat
+    orig : array
+        combined image with calibrations applied
+    thead : Header
+        header of the combined image
+
+    Raises
+    ------
+    ValueError
+        Unrecognised bias_scaling option
     """
-    flat, fhead = combine_frames(files, instrument, mode, extension, **kwargs)
-    # Subtract master dark
-    # TODO: Why do we scale with number of files and not exposure time?
-    if bias is not None:
-        if bias_scaling == "number_of_files":
-            flat -= bias * len(files)
-        elif bias_scaling == "exposure_time":
-            flat -= bias * fhead["exptime"] / bhead["exptime"]
-        elif bias_scaling == "mean":
-            flat -= bias * np.ma.mean(flat) / np.ma.mean(bias)
-        elif bias_scaling == "median":
-            flat -= bias * np.ma.median(flat) / np.ma.median(bias)
+    # Combine the images and try to remove bad pixels
+    orig, thead = combine_frames(files, instrument, mode, mask=mask, **kwargs)
+
+    # Subtract bias
+    if bias is not None and bias_scaling is not None and bias_scaling != "none":
+        if bias.ndim == 2:
+            degree = 0
+            if bhead["exptime"] == 0 and bias_scaling == "exposure_time":
+                logger.warning(
+                    "No exposure time set in bias, using number of files instead"
+                )
+                bias_scaling = "number_of_files"
+            if bias_scaling == "exposure_time":
+                orig -= bias * thead["exptime"] / bhead["exptime"]
+            elif bias_scaling == "number_of_files":
+                orig -= bias * len(files)
+            elif bias_scaling == "mean":
+                orig -= bias * np.ma.mean(orig) / np.ma.mean(bias)
+            elif bias_scaling == "median":
+                orig -= bias * np.ma.median(orig) / np.ma.median(bias)
+            else:
+                raise ValueError(
+                    "Unexpected value for 'bias_scaling', expected one of ['exposure_time', 'number_of_files', 'mean', 'median', 'none'], but got %s"
+                    % bias_scaling
+                )
         else:
-            raise ValueError("Unexpected value for 'bias_scaling', expected one of ['number_of_files', 'exposure_time'], but got %s" % bias_scaling)
-    
+            degree = bias.shape[0]
+            if bias_scaling == "exposure_time":
+                orig -= np.polyval(bias, thead["exptime"])
+            # elif bias_scaling == "number_of_files":
+            #     flat -= bias * len(files)
+            # elif bias_scaling == "mean":
+            #     flat -= bias * np.ma.mean(flat) / np.ma.mean(bias)
+            # elif bias_scaling == "median":
+            #     flat -= bias * np.ma.median(flat) / np.ma.median(bias)
+            else:
+                raise ValueError(
+                    "Unexpected value for 'bias_scaling', expected one of ['exposure_time'], but got %s"
+                    % bias_scaling
+                )
+
+    # Remove the Flat
+    if norm is not None and norm_scaling != "none":
+        if norm_scaling == "divide":
+            orig /= norm
+        else:
+            raise ValueError(
+                "Unexpected value for 'norm_scaling', expected one of ['divide', 'none'], but got %s"
+                % norm_scaling
+            )
 
     if plot:  # pragma: no cover
-        title = "Master Flat"
+        title = "Master"
         if plot_title is not None:
             title = f"{plot_title}\n{title}"
         plt.title(title)
         plt.xlabel("x [pixel]")
         plt.ylabel("y [pixel]")
-        bot, top = np.percentile(flat, (10, 90))
-        plt.imshow(flat, vmin=bot, vmax=top, origin="lower")
-        plt.show()
+        bot, top = np.percentile(orig[orig != 0], (10, 90))
+        plt.imshow(orig, vmin=bot, vmax=top, origin="lower")
+        if plot != "png":
+            plt.show()
+        else:
+            plt.savefig("crires_master_flat.png")
 
-    return flat, fhead
+    return orig, thead
+
+
+def combine_polynomial(
+    files, instrument, mode, mask, degree=1, plot=False, plot_title=None
+):
+    """
+    Combine the input files by fitting a polynomial of the pixel value versus
+    the exposure time of each pixel
+
+    Parameters
+    ----------
+    files : list
+        list of file names
+    instrument : Instrument
+        PyReduce instrument object with load_fits method
+    mode : str
+        mode identifier for this instrument
+    mask : array
+        bad pixel mask to apply to the coefficients
+    degree : int, optional
+        polynomial degree of the fit, by default 1
+    plot : bool, optional
+        whether to plot the results, by default False
+    plot_title : str, optional
+        Title of the plot, by default None
+
+    Returns
+    -------
+    bias : array
+        3d array with the coefficients for each pixel
+    bhead : Header
+        combined FITS header of the coefficients
+    """
+    hdus = [instrument.load_fits(f, mode) for f in tqdm(files)]
+    data = np.array([h[0] for h in hdus])
+    exptimes = np.array([h[1]["EXPTIME"] for h in hdus])
+    # Numpy polyfit can fit all polynomials at the same time
+    # but we need to flatten the pixels into 1 dimension
+    data_flat = data.reshape((len(exptimes), -1))
+    coeffs = np.polyfit(exptimes, data_flat, degree)
+    # Afterwards we reshape the coefficients into the image shape
+    shape = (degree + 1, data.shape[1], data.shape[2])
+    coeffs = coeffs.reshape(shape)
+    # And apply the mask to each image of coefficients
+    if mask is not None:
+        bias = np.ma.masked_array(coeffs, mask=[mask for _ in range(degree + 1)])
+    # We arbitralily pick the first header as the bias header
+    # and change the exposure time
+    bhead = hdus[0][1]
+    bhead["EXPTIME"] = np.sum(exptimes)
+
+    if plot:
+        title = "Master"
+        if plot_title is not None:
+            title = f"{plot_title}\n{title}"
+
+        for i in range(degree + 1):
+            plt.subplot(1, degree + 1, i + 1)
+            plt.title("Coefficient %i" % (degree - i))
+            plt.xlabel("x [pixel]")
+            plt.ylabel("y [pixel]")
+            bot, top = np.percentile(bias[i], (10, 90))
+            plt.imshow(bias[i], vmin=bot, vmax=top, origin="lower")
+
+        plt.suptitle(title)
+        if plot != "png":
+            plt.show()
+        else:
+            plt.savefig("master_bias.png")
+
+    return bias, bhead
 
 
 def combine_bias(
@@ -548,17 +682,6 @@ def combine_bias(
         # if there is just one element compare it with itself, not really useful, but it works
         list1 = list2 = files
         n = 2
-    # elif science_observation_time is not None:
-    #     # TODO split bias into before and after observation sets, if possible
-    #     try:
-    #         kw = get_instrument_info(instrument)["date"]
-    #         times = np.array([parser.parse(fits.open(f)[0].header[kw]) for f in files])
-    #         list1 = files[times < science_observation_time]
-    #         list2 = files[times > science_observation_time]
-    #         # np.digitize(science_observation_time, sorted(times))
-    #     except KeyError:
-    #         logger.info("Could not sort files by observation time")
-    #         list1, list2 = files[: n // 2], files[n // 2 :]
     else:
         list1, list2 = files[: n // 2], files[n // 2 :]
 

@@ -1,13 +1,11 @@
+# -*- coding: utf-8 -*-
 """
 Handles instrument specific info for the HARPS spectrograph
 
 Mostly reading data from the header
 """
-import os.path
-import glob
 import logging
-from datetime import datetime
-import fnmatch
+import os.path
 import re
 
 import numpy as np
@@ -15,20 +13,26 @@ from astropy.io import fits
 from astropy.time import Time
 from dateutil import parser
 
-from .common import getter, InstrumentWithModes, observation_date_to_night
+from .common import InstrumentWithModes, getter, observation_date_to_night
 from .filters import Filter
 
 logger = logging.getLogger(__name__)
 
 
 class MCDONALD(InstrumentWithModes):
+    def __init__(self):
+        super().__init__()
+        # The date is a combination of the two values
+        kw = f"{{{self.info['date']}}}T{{{self.info['universal_time']}}}"
+        self.filters["night"].keyword = kw
+
     def _convert_time_deg(self, v):
         v = [float(s) for s in v.split(":")]
         v = v[0] + v[1] / 60 + v[2] / 3600
         return v
 
     def add_header_info(self, header, mode, **kwargs):
-        """ read data from header and add it as REDUCE keyword back to the header """
+        """read data from header and add it as REDUCE keyword back to the header"""
         # "Normal" stuff is handled by the general version, specific changes to values happen here
         # alternatively you can implement all of it here, whatever works
 
@@ -37,6 +41,9 @@ class MCDONALD(InstrumentWithModes):
         get = getter(header, info, mode)
 
         header["e_orient"] = get("orientation", 0)
+        # As per IDL rotate if orient is 4 or larger and transpose is undefined
+        # the image is transposed
+        header["e_transpose"] = get("transpose", (header["e_orient"] % 8 >= 4))
 
         trimsec = get("trimsec")
 
@@ -76,6 +83,9 @@ class MCDONALD(InstrumentWithModes):
 
         obs_date = get("date")
         ut = get("universal_time")
+        if obs_date is not None and ut is not None:
+            obs_date = f"{obs_date}T{ut}"
+
         dark_time = get("dark_time")
         ra = get("ra")
         dec = get("dec")
@@ -84,8 +94,8 @@ class MCDONALD(InstrumentWithModes):
             ra = self._convert_time_deg(ra)
         if dec is not None:
             dec = self._convert_time_deg(dec)
-        if ut is not None and dark_time is not None:
-            tmid = self._convert_time_deg(ut) + dark_time / 2
+        if dark_time is not None:
+            tmid = dark_time / 2
         else:
             tmid = 0
         if obs_date is not None:
@@ -104,8 +114,14 @@ class MCDONALD(InstrumentWithModes):
         return header
 
     def get_wavecal_filename(self, header, mode, **kwargs):
-        """ Get the filename of the wavelength calibration config file """
+        """Get the filename of the wavelength calibration config file"""
         cwd = os.path.dirname(__file__)
-        fname = "{instrument}_{mode}_2D.npz".format(instrument="harps", mode=mode)
+        fname = "mcdonald.npz"
         fname = os.path.join(cwd, "..", "wavecal", fname)
+        return fname
+
+    def get_mask_filename(self, mode, **kwargs):
+        fname = "mask_mcdonald.fits.gz"
+        cwd = os.path.dirname(__file__)
+        fname = os.path.join(cwd, "..", "masks", fname)
         return fname

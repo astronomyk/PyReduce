@@ -1,11 +1,13 @@
-import numpy as np
-from fnmatch import fnmatch
-import re
-from datetime import datetime, date
-from dateutil import parser
+# -*- coding: utf-8 -*-
 import logging
-from astropy.time import Time
+import re
+from datetime import datetime
+from fnmatch import fnmatch
+
+import numpy as np
 from astropy import units as u
+from astropy.time import Time
+from dateutil import parser
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +35,13 @@ class Filter:
         if self.ignorecase and not self.flags & re.IGNORECASE:
             self.flags += re.IGNORECASE
 
-    def collect(self, header):
+    def _collect_value(self, header):
         if self.keyword is None:
             value = ""
+        elif "{" in self.keyword:
+            kws = re.findall(r"{([^{}]+)}", self.keyword)
+            values = {kw: header.get(kw, "") for kw in kws}
+            value = self.keyword.format(**values)
         else:
             value = header.get(self.keyword)
         if value.__class__ == header.__class__:
@@ -43,6 +49,10 @@ class Filter:
                 value = value[0]
             else:
                 value = ""
+        return value
+
+    def collect(self, header):
+        value = self._collect_value(header)
         self.data.append(value)
         return value
 
@@ -103,9 +113,18 @@ class ObjectFilter(Filter):
 
 
 class NightFilter(Filter):
-    def __init__(self, keyword="DATE-OBS", timeformat="fits", **kwargs):
+    def __init__(
+        self,
+        keyword="DATE-OBS",
+        timeformat="fits",
+        timezone="utc",
+        timezone_local=None,
+        **kwargs,
+    ):
         super().__init__(keyword, dtype=datetime, **kwargs)
         self.timeformat = timeformat
+        self.timezone = timezone
+        self.timezone_local = timezone_local
 
     @staticmethod
     def observation_date_to_night(observation_date):
@@ -117,10 +136,16 @@ class NightFilter(Filter):
         return observation_date.to_datetime().date()
 
     def collect(self, header):
-        value = header.get(self.keyword)
+        value = super()._collect_value(header)
         if value is not None:
-            value = Time(value, format=self.timeformat)
-            value = NightFilter.observation_date_to_night(value)
+            try:
+                value = Time(value, format=self.timeformat, scale=self.timezone)
+                value = self.observation_date_to_night(value)
+            except ValueError:
+                logger.warning(
+                    "Could not determine the observation date of %s, skipping it",
+                    header,
+                )
         else:
             logger.warning(
                 "Could not determine the observation date of %s, skipping it", header

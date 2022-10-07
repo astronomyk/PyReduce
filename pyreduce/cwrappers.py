@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Wrapper for REDUCE C functions
 
@@ -6,12 +7,7 @@ C libraries and sanitizes the input parameters.
 
 """
 import ctypes
-import io
 import logging
-import os
-import sys
-import tempfile
-from contextlib import contextmanager
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,9 +16,9 @@ from scipy.ndimage import median_filter
 logger = logging.getLogger(__name__)
 
 try:
-    from .clib._slitfunc_bd import lib as slitfunclib
     from .clib._slitfunc_2d import lib as slitfunc_2dlib
     from .clib._slitfunc_bd import ffi
+    from .clib._slitfunc_bd import lib as slitfunclib
 except ImportError:  # pragma: no cover
     logger.error(
         "C libraries could not be found. Compiling them by running build_extract.py"
@@ -32,9 +28,9 @@ except ImportError:  # pragma: no cover
     build_extract.build()
     del build_extract
 
-    from .clib._slitfunc_bd import lib as slitfunclib
-    from .clib._slitfunc_2d import lib as slitfunc_2dlib
     from .clib._slitfunc_2d import ffi
+    from .clib._slitfunc_2d import lib as slitfunc_2dlib
+    from .clib._slitfunc_bd import lib as slitfunclib
 
 
 c_double = ctypes.c_double
@@ -133,7 +129,9 @@ def slitfunc(img, ycen, lambda_sp=0, lambda_sf=0.1, osample=1):
     return sp, sl, model, unc, mask
 
 
-def slitfunc_curved(img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrange):
+def slitfunc_curved(
+    img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrange, maxiter=20, gain=1
+):
     """Decompose an image into a spectrum and a slitfunction, image may be curved
 
     Parameters
@@ -154,7 +152,10 @@ def slitfunc_curved(img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrang
         smoothing factor slitfunction (the default is 0.1, small smoothing)
     yrange : array[2]
         number of pixels below and above the central line that have been cut out
-
+    maxiter : int, optional
+        maximumim number of iterations, by default 20
+    gain : float, optional
+        gain of the image, by default 1
 
     Returns
     -------
@@ -166,12 +167,14 @@ def slitfunc_curved(img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrang
     lambda_sf = float(lambda_sf)
     lambda_sp = float(lambda_sp)
     osample = int(osample)
+    maxiter = int(maxiter)
     img = np.asanyarray(img, dtype=c_double)
     ycen = np.asarray(ycen, dtype=c_double)
     yrange = np.asarray(yrange, dtype=int)
 
     assert img.ndim == 2, "Image must be 2 dimensional"
     assert ycen.ndim == 1, "Ycen must be 1 dimensional"
+    assert maxiter > 0, "Maximum iterations must be positive"
 
     if np.isscalar(tilt):
         tilt = np.full(img.shape[1], tilt, dtype=c_double)
@@ -184,13 +187,19 @@ def slitfunc_curved(img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrang
 
     assert (
         img.shape[1] == ycen.size
-    ), "Image and Ycen shapes are incompatible, got %s and %s" % (img.shape, ycen.shape)
+    ), "Image and Ycen shapes are incompatible, got {} and {}".format(
+        img.shape, ycen.shape
+    )
     assert (
         img.shape[1] == tilt.size
-    ), "Image and Tilt shapes are incompatible, got %s and %s" % (img.shape, tilt.shape)
-    assert img.shape[1] == shear.size, (
-        "Image and Shear shapes are incompatible, got %s and %s"
-        % (img.shape, shear.shape)
+    ), "Image and Tilt shapes are incompatible, got {} and {}".format(
+        img.shape, tilt.shape
+    )
+    assert (
+        img.shape[1] == shear.size
+    ), "Image and Shear shapes are incompatible, got {} and {}".format(
+        img.shape,
+        shear.shape,
     )
 
     assert osample > 0, f"Oversample rate must be positive, but got {osample}"
@@ -242,7 +251,10 @@ def slitfunc_curved(img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrang
     sp = np.sum(img, axis=0)
 
     mask = np.where(mask, c_int(0), c_int(1))
+    # Determine the shot noise
+    # by converting electrons to photonsm via the gain
     pix_unc = np.nan_to_num(np.abs(img), copy=False)
+    pix_unc *= gain
     np.sqrt(pix_unc, out=pix_unc)
     pix_unc[pix_unc < 1] = 1
 
@@ -267,7 +279,10 @@ def slitfunc_curved(img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrang
     # Info contains the folowing: sucess, cost, status, iteration, delta_x
     info = np.zeros(5, dtype=c_double)
 
-    assert not np.any(np.sum(mask, axis=0) == 0), "At least one mask column is all 0."
+    col = np.sum(mask, axis=0) == 0
+    if np.any(col):
+        mask[mask.shape[0] // 2, col] = 1
+    # assert not np.any(np.sum(mask, axis=0) == 0), "At least one mask column is all 0."
 
     # Call the C function
     slitfunc_2dlib.slit_func_curved(
@@ -283,6 +298,7 @@ def slitfunc_curved(img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrang
         ffi.cast("int", osample),
         ffi.cast("double", lambda_sp),
         ffi.cast("double", lambda_sf),
+        ffi.cast("int", maxiter),
         ffi.cast("double *", psf_curve.ctypes.data),
         ffi.cast("double *", sp.ctypes.data),
         ffi.cast("double *", sl.ctypes.data),
@@ -300,7 +316,7 @@ def slitfunc_curved(img, ycen, tilt, shear, lambda_sp, lambda_sf, osample, yrang
         if status == 0:
             msg = "I dont't know what happened"
         elif status == -1:
-            msg = "Did not finish convergence after maxiter iterations"
+            msg = f"Did not finish convergence after maxiter ({maxiter}) iterations"
         elif status == -2:
             msg = "Curvature is larger than the swath. Check the curvature!"
         else:

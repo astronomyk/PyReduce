@@ -1,23 +1,15 @@
+# -*- coding: utf-8 -*-
 # Define Version
 from ._version import get_versions
 
 __version__ = get_versions()["version"]
 del get_versions
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-
-try:
-    mpl.use("QT5Agg")
-    plt.style.use("seaborn-paper")
-except:
-    pass
-del mpl
-del plt
-
 # add logger to console
 import logging
+
 import tqdm
+
 
 # We need to use this to have logging messages handle properly with the progressbar
 class TqdmLoggingHandler(logging.Handler):
@@ -59,4 +51,4 @@ del logging
 # do not del tqdm, it is needed in the Log Handler
 
 # Load externally available modules
-from . import reduce, datasets, instruments, util, configuration
+from . import configuration, datasets, reduce, util
